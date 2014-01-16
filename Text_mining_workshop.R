@@ -1,3 +1,8 @@
+# Test Mining with R 
+# March 5, 2014
+# StatLab@UVa Library
+# Clay Ford
+
 
 
 # need to provide workshop attendees zip file with directory structure;
@@ -73,13 +78,6 @@ inspect(doc.tdm)
 # high document frequency
 
 inspect(weightTfIdf(doc.tdm))
-
-
-
-# Zipf's law: the frequency of any word is inversely proportional to its rank in the frequency table.
-Zipf_plot(doc.tdm, type = "l")
-# Heaps' law: the vocabulary size V grows polynomially with the text size T ( total number of terms in the texts)
-Heaps_plot(doc.tdm, type = "l")
 
 
 meta(doc.corpus[[1]], tag="Description")  <- "some text"
@@ -189,7 +187,7 @@ colnames(restX)[dim(restX)[2]] <- "days.after"
 Y <- stwt$ind
 sum(Y)/length(Y) # percent relevant
 
-# STEP 6: perform classification analysis using the Lasso
+# STEP 6: create classification model using the Lasso
 
 # classify using logistic regression (The Lasso)
 library(glmnet)
@@ -221,6 +219,8 @@ lasso.coef
 # see how it works on training set
 sum(ifelse(predict(out, newx = sampX, s = bestlam) > 0, 1, 0) == Y)/250
 
+# STEP 7: classify tweets
+
 # now make predictions for tweets with no classification
 predY <- predict(cv.out, newx=restX, s="lambda.min", type="class")
 
@@ -246,43 +246,47 @@ setwd("workshops/Text Mining/data")
 # read source code page 1 of reviews
 test <- readLines("http://www.amazon.com/Fitbit-Wireless-Activity-Tracker-Charcoal/product-reviews/B0095PZHZE/ref=cm_cr_pr_top_link_2?ie=UTF8&pageNumber=1")
 
+# work to get reviews
 # get indices of where these phrases occur and count how many; tells us how many reviews on page
 length(grep("This review is from:", test))
+
+# text that always appears before review
 grep("This review is from:", test)
+
+# test that alwats appears after review
 grep( "Help other customers find the most helpful reviews", test)
-# test[2105:2111]
 
-# work to get stars
-# get number of stars for each review
-grep("margin-right:5px;\"><span class=\"swSprite s_star_", test)
-
-rating <- test[grep("margin-right:5px;\"><span class=\"swSprite s_star_", test)]
-substr(rating[1],70,70)
-test[grep("margin-right:5px;\"><span class=\"swSprite s_star_", test)][1]
-
-temp1 <- test[grep("margin-right:5px;\"><span class=\"swSprite s_star_", test)][1]
-ratings <- substr(temp1,70,70)
-
-# work to get reviews
 # get just the first review
 test[grep("This review is from:", test)[1]:
        grep( "Help other customers find the most helpful reviews", test)[1]]
 
 # this returns a vector of length 7; the 4th element always contains the review
+test[grep("This review is from:", test)[1]:
+                 grep( "Help other customers find the most helpful reviews", test)[1]][4]
 
-review <- test[grep("This review is from:", test)[1]:
-                 grep( "Help other customers find the most helpful reviews", test)[1]]
+# therefore this pulls only reviews
+test[grep("This review is from:", test)[1] +3]
 
-# length(grep("This review is from:", getPage))
-#####################################################
-# script to scrape reviews of Fit Bit from Amazon
-#####################################################
+
+# work to get stars
+# get number of stars for each review
+# appears that rating is preceded by following code:
+grep("margin-right:5px;\"><span class=\"swSprite s_star_", test)
+
+# pull all lines of code into vector
+rating <- test[grep("margin-right:5px;\"><span class=\"swSprite s_star_", test)]
+rating
+rating <- substr(rating,70,70)
+rating
+
+
+# STEP 2: write formal code to extract reviews
 # do not run during workshop; takes too long!
-# create empty vector to store reviews; make it bigger than necessary
-reviews <- rep(NA, 5000)
-ratings <- rep(NA, 5000)
-n <- 1
-i <- 1
+
+reviews <- rep(NA, 5000) # vector to store reviews
+ratings <- rep(NA, 5000) # vector to store ratings
+n <- 1 # review counter
+i <- 1 # page counter
 # Loop until length(grep("This review is from:", test)) == 0
 repeat{
   getPage <- readLines(paste("http://www.amazon.com/Fitbit-Wireless-Activity-Tracker-Charcoal/product-reviews/B0095PZHZE/ref=cm_cr_pr_top_link_2?ie=UTF8&pageNumber=",
@@ -291,37 +295,80 @@ repeat{
     for(j in 1:length(grep("This review is from:", getPage))){
       temp1 <- getPage[grep("margin-right:5px;\"><span class=\"swSprite s_star_", getPage)][j]
       ratings[n] <- substr(temp1,70,70)
-      temp2 <- getPage[grep("This review is from:", getPage)[j]:
-                         grep( "Help other customers find the most helpful reviews", getPage)[j]]
-      reviews[n] <- temp2[4]
+      reviews[n]  <- getPage[grep("This review is from:", getPage)[j] + 3]
       n <- n + 1
     }
     i <- i + 1
   }
 }
-
+# remove any missing records from each vector
 reviews <- reviews[!is.na(reviews)]
 ratings <- ratings[!is.na(ratings)]
-allReviews <- data.frame(review=reviews, rating=ratings, stringsAsFactors=FALSE) # I() = keep as character
+# make into a data frame  
+allReviews <- data.frame(review=reviews, rating=ratings, stringsAsFactors=FALSE)
+# remove HTML tags from text of reviews
+allReviews$review <- gsub("<[^>]*>", " ",allReviews$review) 
+
+# save for later use
 save(allReviews, file="amzReviews.Rda")
 
-# check results against Amazon
-mean(as.numeric(allReviews$rating)) # avg customer review
-table(allReviews$rating) # dist'n of ratings
-# see how big the object is
-print(object.size(allReviews),units="Mb")
+# load this for workshop
+load("amzReviews.Rda") # collected 16-Jan-2014
 
+# STEP 3: summarize and investigate
 
+# avg customer review
+mean(as.numeric(allReviews$rating)) 
+# distribution of ratings
+table(allReviews$rating) 
 
-load("amzReviews.Rda") # collected 14-Jan-2014
-
-allReviews$review <- as.character(allReviews$review)
-allReviews$review <- gsub("<[^>]*>", " ",allReviews$review) # remove HTML tags
-
-# perhaps look at the language of bad reviews
+# let's look at the bad reviews
 # subset 1 and 2 star reviews
-badReviews <- subset(allReviews, subset= ratings %in% c(1,2))
+badReviews <- subset(allReviews, subset= rating=="1")
 dim(badReviews)
+
+# make Term-Document matrix of words
+library(tm)
+revCorp <- Corpus(VectorSource(badReviews$review))
+revCorp <- tm_map(revCorp, tolower)
+revCorp <- tm_map(revCorp, stripWhitespace)
+revCorp <- tm_map(revCorp, removeWords, c(stopwords("english"),"fitbit", "zip"))
+revCorp <- tm_map(revCorp, removePunctuation) 
+revCorp <- tm_map(revCorp, removeNumbers) 
+
+# wordcloud from corpus 
+library("wordcloud")
+wordcloud(revCorp,min.freq=15)
+
+# wordcloud from frequency counts
+tdm <- TermDocumentMatrix(revCorp)
+m <- as.matrix(tdm)
+v <- sort(rowSums(m),decreasing=TRUE)
+v[1:20]
+d <- data.frame(word = names(v),freq=v)
+wordcloud(d$word,d$freq, min.freq=15)
+
+
+library(RColorBrewer)
+pal <- brewer.pal(6,"Dark2")
+wordcloud(words=d$word,freq=d$freq,min.freq=15,colors=pal)
+  
+findFreqTerms(tdm, lowfreq=15)
+# find associations for the term "battery"
+findAssocs(tdm, "battery", 0.5)
+
+# create a dictionary of words;
+# we'll use this to create a DTM for just those words
+d <- Dictionary(c("battery", "work", "service"))
+inspect(DocumentTermMatrix(revCorp, list(dictionary = d)))
+# certain documents mention battery a lot
+
+# save the DTM
+dtm <- DocumentTermMatrix(revCorp, list(dictionary = d))
+# extract the rownames (doc numbers) where battery mentioned more than 2 times
+ind <- rownames(subset(as.matrix(dtm), subset= as.matrix(dtm)[,1]>2) )
+# see the reviews where battery mentioned more than 2 times
+badReviews$review[as.numeric(ind)]
 
 
 
