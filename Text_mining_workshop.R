@@ -4,6 +4,9 @@
 # probably need to provide instructions about where to unzip;
 # test that out on your computer!
 
+
+# Corpus/TDM Example ------------------------------------------------------
+
 # toy example of turning text into numbers
 setwd("~/workshops/Text Mining/docs")
 # save files name to vector
@@ -65,8 +68,6 @@ inspect(doc.tdm)
 # Important to know how Corpora and TDMs are created. They will often be huge and not
 # easily checked by eye.
 
-
-
 # Weight a term-document matrix by term frequency - inverse document frequency (TF-IDF)
 # Idea: words with high term frequency should receive high weight unless they also have
 # high document frequency
@@ -83,6 +84,252 @@ Heaps_plot(doc.tdm, type = "l")
 
 meta(doc.corpus[[1]], tag="Description")  <- "some text"
 DublinCore(doc.corpus)
+
+
+# classification of tweets (JSON) -----------------------------------------
+
+# STEP 1: read in twitter JSON files
+
+# set directory with tweets
+setwd("~/workshops/Text Mining/data/json_files/")
+
+# load RJSONIO package which allows us to read in JSON files using fromJSON() function
+library(RJSONIO)
+files <- dir() # vector of all json file names
+files
+length(files)
+# What does the fromJSON() do?
+files[1]
+fromJSON(files[1])
+
+# "apply" the fromJSON() function to all JSON files and create a single list object
+tdata <- lapply(files, fromJSON) 
+tdata[[1]] # see first tweet
+
+# STEP 2: prep twitter data
+
+# extract tweets
+tdata[[1]]$text # first tweet
+# load all tweets into a vector
+tweets <- sapply(tdata,function(x) x$text)
+
+# see random sample of 10 tweets
+set.seed(1) # so we all seee the same tweets
+sample(tweets,10)
+
+# create variable measuring days after resignation;
+# 2012-06-08: Dragas and Kington ask for Sullivan's resignation
+# extract date of tweet
+dates <- as.Date(sapply(tdata,function(x) x$created_at), format="%a %b %d %H:%M:%S %z %Y")
+# days after 2012-06-08
+daysAfter <- as.numeric(dates - as.Date("2012-06-08"))
+
+# remove some objects to free up some memory
+rm(tdata, dates, files)
+
+# STEP 3: create DocumentTermMatrix
+
+library(tm)
+# create corpus
+corpus <- Corpus(VectorSource(tweets)) # this takes a few moments
+
+# clean up corpus
+corpus <- tm_map(corpus, tolower)
+corpus <- tm_map(corpus, stripWhitespace)
+corpus <- tm_map(corpus, removeWords, stopwords('english'))
+corpus <- tm_map(corpus, removePunctuation) 
+corpus <- tm_map(corpus, removeNumbers) 
+
+# create DTM; only keep terms that appear in at least 5 tweets
+dtm <- DocumentTermMatrix(corpus, control = list(bounds = list(global = c(5,Inf))))
+inspect(dtm[1:5,1:5])
+colnames(dtm) # see selected words
+
+# convert document-term matrix (DTM) to matrix form;
+# need this for analysis
+X <- as.matrix(dtm)
+X[1:5,1:5]
+
+# remove some objects to free up some memory
+rm(corpus, dtm)
+
+# STEP 4: export sample to classify
+
+set.seed(12)
+# extract sample (250 tweets) for classification
+sample.tweets <- tweets[sample(1:length(tweets),250)] 
+# export 100 sample tweets for indicator to be added
+setwd("~/workshops/Text Mining/data/")
+write.csv(sample.tweets,"sample.tweets.csv", row.names=FALSE)
+# open file in Excel and add indicator (1 = relevant, 0 = not relevant)
+# Done prior to workshop
+
+# STEP 5: read in classified tweets and combine with DTM matrix
+
+# read data with indicators (1= relevant, 0=not relevant)
+# these data sampled with set.seed(12)
+stwt <- read.csv("sample.tweets.csv", header=TRUE)
+
+# need to sample from DTM 
+set.seed(12)
+sampX <- X[sample(1:length(tweets),250),] 
+# need to save what wasn't sampled for classification after model-building
+set.seed(12)
+restX <- X[-sample(1:length(tweets),250),] 
+
+# add daysAfter to DTM matrices; it will be an additional predictor
+set.seed(12)
+sampX <- cbind(sampX,daysAfter[sample(1:length(daysAfter),250)]) 
+colnames(sampX)[dim(sampX)[2]] <- "days.after"
+set.seed(12)
+restX <- cbind(restX,daysAfter[-sample(1:length(daysAfter),250)]) 
+colnames(restX)[dim(restX)[2]] <- "days.after"
+
+# create a response vector for analysis
+Y <- stwt$ind
+sum(Y)/length(Y) # percent relevant
+
+# STEP 6: perform classification analysis using the Lasso
+
+# classify using logistic regression (The Lasso)
+library(glmnet)
+# define a range of lambda values (ie, tuning parameter)
+grid <- 10^seq(10,-2, length=100) 
+set.seed(1)
+# create training and testing sets
+train <- sample(1:nrow(sampX), nrow(sampX)/2)
+test <- (-train)
+y.test <- Y[test]
+
+# fit logistic model via lasso
+# alpha=1 is lasso; alpha=0 is ridge regression
+# perform cross-validation and find the best lambda (ie, the lowest lambda);
+# type.measure="class" gives misclassification error rate
+set.seed(1)
+cv.out <- cv.glmnet(sampX[train,], factor(Y[train]), alpha=1, family="binomial",  type.measure = "class")
+plot(cv.out)
+bestlam <- cv.out$lambda.min # best lambda as selected by cross validation
+
+
+# the lasso model with lambda chosen by cross-validation contains only selected variables
+# re-run model with all data using selected lambda
+out <- glmnet(sampX, factor(Y), alpha=1, lambda=grid, family="binomial")
+lasso.coef <- predict(out, type="coefficients", s=bestlam)
+# see selected coefficients
+lasso.coef 
+
+# see how it works on training set
+sum(ifelse(predict(out, newx = sampX, s = bestlam) > 0, 1, 0) == Y)/250
+
+# now make predictions for tweets with no classification
+predY <- predict(cv.out, newx=restX, s="lambda.min", type="class")
+
+# combine prediction with tweets
+classifiedTweets <- cbind(predY, tweets[-sample(1:length(tweets),250)])
+# check a few
+classifiedTweets[sample(750,1),]
+
+
+# sentiment analysis (twitter API) ----------------------------------------
+
+
+
+
+
+# summary/wordcloud (web scraping) ----------------------------------------
+
+setwd("workshops/Text Mining/")
+# page 1 of reviews
+test <- readLines("http://www.amazon.com/kindle-fire-hd-best-family-kids-tablet/product-reviews/B00CU0NSCU/ref=cm_cr_pr_btm_link_2?ie=UTF8&pageNumber=17")
+# get indices of where these phrases occur and count how many; tells us how many reviews on page
+length(grep("This review is from:", test))
+grep("This review is from:", test)
+grep( "Help other customers find the most helpful reviews", test)
+# test[2105:2111]
+
+# work to get stars
+# get number of stars for each review
+grep("margin-right:5px;\"><span class=\"swSprite s_star_", test)
+
+rating <- test[grep("margin-right:5px;\"><span class=\"swSprite s_star_", test)]
+substr(rating[1],70,70)
+test[grep("margin-right:5px;\"><span class=\"swSprite s_star_", test)][1]
+
+temp1 <- test[grep("margin-right:5px;\"><span class=\"swSprite s_star_", test)][1]
+ratings <- substr(temp1,70,70)
+
+# work to get reviews
+# get just the first review
+test[grep("This review is from:", test)[1]:
+       grep( "Help other customers find the most helpful reviews", test)[1]]
+
+# this returns a vector of length 7; the 4th element always contains the review
+
+review <- test[grep("This review is from:", test)[1]:
+                 grep( "Help other customers find the most helpful reviews", test)[1]]
+
+# length(grep("This review is from:", getPage))
+#####################################################
+# script to scrape reviews of Fit Bit from Amazon
+#####################################################
+# do not run during workshop; takes too long!
+# create empty vector to store reviews; make it bigger than necessary
+reviews <- rep(NA, 5000)
+ratings <- rep(NA, 5000)
+n <- 1
+i <- 1
+# Loop until length(grep("This review is from:", test)) == 0
+repeat{
+  getPage <- readLines(paste("http://www.amazon.com/Fitbit-Wireless-Activity-Tracker-Charcoal/product-reviews/B0095PZHZE/ref=cm_cr_pr_top_link_2?ie=UTF8&pageNumber=",
+                             i,sep=""))
+  if(length(grep("This review is from:", getPage)) == 0) break else {
+    for(j in 1:length(grep("This review is from:", getPage))){
+      temp1 <- getPage[grep("margin-right:5px;\"><span class=\"swSprite s_star_", getPage)][j]
+      ratings[n] <- substr(temp1,70,70)
+      temp2 <- getPage[grep("This review is from:", getPage)[j]:
+                         grep( "Help other customers find the most helpful reviews", getPage)[j]]
+      reviews[n] <- temp2[4]
+      n <- n + 1
+    }
+    i <- i + 1
+  }
+}
+
+reviews <- reviews[!is.na(reviews)]
+ratings <- ratings[!is.na(ratings)]
+allReviews <- data.frame(review=reviews, rating=ratings, stringsAsFactors=FALSE) # I() = keep as character
+save(allReviews, file="amzReviews.Rda")
+
+# check results against Amazon
+mean(as.numeric(allReviews$rating)) # avg customer review
+table(allReviews$rating) # dist'n of ratings
+# see how big the object is
+print(object.size(allReviews),units="Mb")
+
+
+
+load("amzReviews.Rda") # collected 14-Jan-2014
+
+allReviews$review <- as.character(allReviews$review)
+allReviews$review <- gsub("<[^>]*>", " ",allReviews$review) # remove HTML tags
+
+# perhaps look at the language of bad reviews
+# subset 1 and 2 star reviews
+badReviews <- subset(allReviews, subset= ratings %in% c(1,2))
+dim(badReviews)
+
+
+
+#############################################################################
+#############################################################################
+#############################################################################
+#############################################################################
+
+
+
+
+
+
 
 # text mining for sentiment
 setwd("C:/Users/jcf2d/Documents/workshops/Text Mining")
@@ -476,86 +723,6 @@ xmlToDataFrame()
 
 
 
-# web scraping ------------------------------------------------------------
-setwd("workshops/Text Mining/")
-# page 1 of reviews
-test <- readLines("http://www.amazon.com/kindle-fire-hd-best-family-kids-tablet/product-reviews/B00CU0NSCU/ref=cm_cr_pr_btm_link_2?ie=UTF8&pageNumber=17")
-# get indices of where these phrases occur and count how many; tells us how many reviews on page
-length(grep("This review is from:", test))
-grep("This review is from:", test)
-grep( "Help other customers find the most helpful reviews", test)
-# test[2105:2111]
-
-# work to get stars
-# get number of stars for each review
-grep("margin-right:5px;\"><span class=\"swSprite s_star_", test)
-
-rating <- test[grep("margin-right:5px;\"><span class=\"swSprite s_star_", test)]
-substr(rating[1],70,70)
-test[grep("margin-right:5px;\"><span class=\"swSprite s_star_", test)][1]
-
-temp1 <- test[grep("margin-right:5px;\"><span class=\"swSprite s_star_", test)][1]
-ratings <- substr(temp1,70,70)
-
-# work to get reviews
-# get just the first review
-test[grep("This review is from:", test)[1]:
-     grep( "Help other customers find the most helpful reviews", test)[1]]
-
-# this returns a vector of length 7; the 4th element always contains the review
-
-review <- test[grep("This review is from:", test)[1]:
-                    grep( "Help other customers find the most helpful reviews", test)[1]]
-
-# length(grep("This review is from:", getPage))
-#####################################################
-# script to scrape reviews of Kindle Fire from Amazon
-#####################################################
-# do not run during workshop; takes too long!
-# create empty vector to store reviews; make it bigger than necessary
-reviews <- rep(NA, 5000)
-ratings <- rep(NA, 5000)
-n <- 1
-i <- 1
-# Loop until length(grep("This review is from:", test)) == 0
-repeat{
-  getPage <- readLines(paste("http://www.amazon.com/kindle-fire-hd-best-family-kids-tablet/product-reviews/B00CU0NSCU/ref=cm_cr_pr_btm_link_2?ie=UTF8&pageNumber=",
-                   i,sep=""))
-  if(length(grep("This review is from:", getPage)) == 0) break else {
-    for(j in 1:length(grep("This review is from:", getPage))){
-      temp1 <- getPage[grep("margin-right:5px;\"><span class=\"swSprite s_star_", getPage)][j]
-      ratings[n] <- substr(temp1,70,70)
-      temp2 <- getPage[grep("This review is from:", getPage)[j]:
-                       grep( "Help other customers find the most helpful reviews", getPage)[j]]
-      reviews[n] <- temp2[4]
-      n <- n + 1
-    }
-  i <- i + 1
-  }
-}
-
-reviews <- reviews[!is.na(reviews)]
-ratings <- ratings[!is.na(ratings)]
-allReviews <- data.frame(review=reviews, rating=ratings, stringsAsFactors=FALSE) # I() = keep as character
-save(allReviews, file="amzReviews.Rda")
-
-# check results against Amazon
-mean(as.numeric(allReviews$rating)) # avg customer review
-table(allReviews$rating) # dist'n of ratings
-# see how big the object is
-print(object.size(allReviews),units="Mb")
-
-
-
-load("amzReviews.Rda") # collected 14-Jan-2014
-
-allReviews$review <- as.character(allReviews$review)
-allReviews$review <- gsub("<[^>]*>", " ",allReviews$review) # remove HTML tags
-
-# perhaps look at the language of bad reviews
-# subset 1 and 2 star reviews
-badReviews <- subset(allReviews, subset= ratings %in% c(1,2))
-dim(badReviews)
 
 
 
