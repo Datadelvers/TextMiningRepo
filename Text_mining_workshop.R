@@ -236,11 +236,16 @@ classifiedTweets[sample(750,1),]
 
 
 
-# summary/wordcloud (web scraping) ----------------------------------------
+# summarize/wordcloud (web scraping) ----------------------------------------
+setwd("workshops/Text Mining/data")
 
-setwd("workshops/Text Mining/")
-# page 1 of reviews
-test <- readLines("http://www.amazon.com/kindle-fire-hd-best-family-kids-tablet/product-reviews/B00CU0NSCU/ref=cm_cr_pr_btm_link_2?ie=UTF8&pageNumber=17")
+# Interested in summarizing reviews of FitBit; want to know more about the negative reviews
+# http://www.amazon.com/Fitbit-Wireless-Activity-Tracker-Charcoal/product-reviews/B0095PZHZE/ref=cm_cr_pr_top_link_2?ie=UTF8&pageNumber=1
+
+# STEP 1: develop strategy for scraping data
+# read source code page 1 of reviews
+test <- readLines("http://www.amazon.com/Fitbit-Wireless-Activity-Tracker-Charcoal/product-reviews/B0095PZHZE/ref=cm_cr_pr_top_link_2?ie=UTF8&pageNumber=1")
+
 # get indices of where these phrases occur and count how many; tells us how many reviews on page
 length(grep("This review is from:", test))
 grep("This review is from:", test)
