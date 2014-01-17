@@ -298,6 +298,9 @@ comments <- c(comments, nytComments(url=story,
                         nysort="recommended"))
 }
 
+# save(comments,file="comments.Rda")
+# load("comments.Rda")
+
 
 # sentiment analysis function
 
