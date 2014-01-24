@@ -13,10 +13,11 @@
 # Corpus/TDM Example ------------------------------------------------------
 
 # toy example of turning text into numbers
-setwd("~/workshops/Text Mining/docs")
+setwd("~/workshops/Text Mining/data/docs")
 # save files name to vector
-(files <- dir())
-
+dir()
+files <- dir()
+files
 # create a vector to store content of files
 allData <- rep(NA,length(files))
 
@@ -27,11 +28,15 @@ for(i in 1:length(files)){
 allData # vector; each element contains content of text files
 
 # load tm, a text mining package for R
+# install.packages("tm")
 library(tm)
-# first create a Corpus, basically a data base for text documents
+
+# first create a Corpus, basically a database for text documents
 doc.corpus <- Corpus(VectorSource(allData))
 inspect(doc.corpus)
 inspect(doc.corpus[3])
+str(doc.corpus)
+
 # next create a basic Term Document Matrix (rows=terms, columns=documents)
 doc.tdm <- TermDocumentMatrix(doc.corpus)
 inspect(doc.tdm) 
@@ -43,23 +48,27 @@ inspect(doc.tdm)
 # doc.tdm <- TermDocumentMatrix(doc.corpus, control=list(wordLengths = c(2, Inf)))
 
 
-# apply transformations to corpus
+# we usually want to apply transformations to corpus before creating TDM.
+# use the tm_map() function.
+
 # make all lower-case in advance; helps with stop words
 doc.corpus <- tm_map(doc.corpus, tolower) 
 inspect(doc.corpus)
+
 # remove lower-case stop words
 # see stop words: stopwords("english")
 doc.corpus <- tm_map(doc.corpus, removeWords, stopwords("english")) 
 inspect(doc.corpus)
+# if you want to add stopwords:
+# tm_map(doc.corpus, removeWords, c(stopwords("english"),"custom","words")) 
+
 # remove punctuation
 doc.corpus <- tm_map(doc.corpus, removePunctuation) 
 inspect(doc.corpus)
+
 # remove numbers
 doc.corpus <- tm_map(doc.corpus, removeNumbers) 
 inspect(doc.corpus)
-
-# if you want to add stopwords:
-# tm_map(doc.corpus, removeWords, c(stopwords("english"),"custom","words")) 
 
 doc.tdm <- TermDocumentMatrix(doc.corpus)
 inspect(doc.tdm)
@@ -73,15 +82,6 @@ inspect(doc.tdm)
 # Important to know how Corpora and TDMs are created. They will often be huge and not
 # easily checked by eye.
 
-# Weight a term-document matrix by term frequency - inverse document frequency (TF-IDF)
-# Idea: words with high term frequency should receive high weight unless they also have
-# high document frequency
-
-inspect(weightTfIdf(doc.tdm))
-
-
-meta(doc.corpus[[1]], tag="Description")  <- "some text"
-DublinCore(doc.corpus)
 
 
 # classification of tweets (JSON) -----------------------------------------
@@ -95,7 +95,7 @@ setwd("~/workshops/Text Mining/data/json_files/")
 library(RJSONIO)
 files <- dir() # vector of all json file names
 files
-length(files)
+length(files) 
 # What does the fromJSON() do?
 files[1]
 fromJSON(files[1])
@@ -110,14 +110,14 @@ tdata[[1]] # see first tweet
 tdata[[1]]$text # first tweet
 # load all tweets into a vector
 tweets <- sapply(tdata,function(x) x$text)
-
+tweets[1]
 # see random sample of 10 tweets
 set.seed(1) # so we all seee the same tweets
 sample(tweets,10)
 
 # create variable measuring days after resignation;
 # 2012-06-08: Dragas and Kington ask for Sullivan's resignation
-# extract date of tweet
+# extract date of tweet (example: "Sun Jun 17 20:20:03 +0000 2012")
 dates <- as.Date(sapply(tdata,function(x) x$created_at), format="%a %b %d %H:%M:%S %z %Y")
 # days after 2012-06-08
 daysAfter <- as.numeric(dates - as.Date("2012-06-08"))
@@ -129,7 +129,7 @@ rm(tdata, dates, files)
 
 library(tm)
 # create corpus
-corpus <- Corpus(VectorSource(tweets)) # this takes a few moments
+corpus <- Corpus(VectorSource(tweets)) # this may take a few moments
 
 # clean up corpus
 corpus <- tm_map(corpus, tolower)
@@ -532,6 +532,69 @@ badReviews[badReviews$km.clusters==5,"review"]
 
 
 #############################################################################
+#
+# Bonus material: How to use the Twitter API with R
+
+# install.packages("twitteR")
+setwd("~/workshops/Text Mining/")
+library(twitteR)
+
+# necessary step for Windows to handle the SSL Part
+# download to working directory:
+download.file(url="http://curl.haxx.se/ca/cacert.pem", destfile="cacert.pem")
+
+# Use the OAuthFactory to setup the Credentials and start accessing data in the following way
+# as of 14-Jan-2014, those URLs need to be https!
+reqURL <- "https://api.twitter.com/oauth/request_token"
+accessURL <- "https://api.twitter.com/oauth/access_token"
+authURL <- "https://api.twitter.com/oauth/authorize"
+
+# how to get these:
+# The first step is to create a Twitter application for yourself. 
+# Go to https://twitter.com/apps/new and and log in. 
+# After filling in the basic info, go to the "Settings" tab and 
+# select "Read, Write and Access direct messages". 
+# Make sure to click on the save button after doing this. 
+# In the "Details" tab, take note of your consumer key and consumer secret.
+
+consumerKey <- "4jLSBcyXSb4BjyYo14KPiw"
+consumerSecret <- "XYIhxLo7NYHdFpXtzTT5cN30EdvvK086YrU6gsbgs"
+twitCred <- OAuthFactory$new(consumerKey=consumerKey,consumerSecret=consumerSecret,
+                             requestURL=reqURL,accessURL=accessURL,authURL=authURL)
+
+# Create a handshake with twitter.
+# copy and paste the URL that appears into your web browser address bar and go to it;
+# get the 7-digit PIN, type in and click Enter
+twitCred$handshake(cainfo="cacert.pem")
+registerTwitterOAuth(twitCred) # should see TRUE
+
+# download tweets! search Twitter based on a supplied search string;
+# permitted 350 requests per hour, limited to 1500 results each time;
+# do not forget using your CA Cert, otherwise you will get an error message. 
+tweets <- searchTwitter('@delta', cainfo="cacert.pem", n=100)
+
+
+
+###########################################
+# save the file so you don't have to do all the above again in your next session
+save(twitCred, file="twitCred.Rdata")
+
+# code to use saved file in your next R session:
+setwd("workshops/Text Mining/")
+load("twitCred.Rdata")
+library(twitteR)
+registerTwitterOAuth(twitCred)
+
+
+###########################################
+# Reference:
+# Getting Started with TwitteR package
+# http://sivaanalytics.wordpress.com/2013/10/07/getting-started-with-twitter-package/
+
+
+
+
+
 #############################################################################
 #############################################################################
 #############################################################################
