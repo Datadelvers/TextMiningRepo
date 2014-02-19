@@ -18,14 +18,22 @@ setwd("~/workshops/Text Mining/data/docs")
 dir()
 files <- dir()
 files
+
+# read in text of files and store in a vector
 # create a vector to store content of files
 allData <- rep(NA,length(files))
+allData
 
-# a for loop that reads the lines of each file
+# METHOD 1
+# create a "for" loop that reads the lines of each file
 for(i in 1:length(files)){
   allData[i] <- readLines(files[i])  
 }
 allData # vector; each element contains content of text files
+
+# METHOD 2
+# use sapply with an anonymous function
+allData <- sapply(files, function(x)readLines(x))
 
 # load tm, a text mining package for R
 # install.packages("tm")
@@ -33,9 +41,11 @@ library(tm)
 
 # first create a Corpus, basically a database for text documents
 doc.corpus <- Corpus(VectorSource(allData))
+doc.corpus
+# use the inspect() function to look at the corpus
 inspect(doc.corpus)
 inspect(doc.corpus[3])
-str(doc.corpus)
+str(doc.corpus) # see the structure of the corpus
 
 # next create a basic Term Document Matrix (rows=terms, columns=documents)
 doc.tdm <- TermDocumentMatrix(doc.corpus)
@@ -82,7 +92,20 @@ inspect(doc.tdm)
 # Important to know how Corpora and TDMs are created. They will often be huge and not
 # easily checked by eye.
 
+# TWO MISCELLANEOUS ITEMS
 
+# (1) Weighting a term-document matrix by term frequency - inverse document
+# frequency (TF-IDF). Words with high term frequency should receive high 
+# weight unless they also have high document frequency.
+# http://en.wikipedia.org/wiki/Tf%E2%80%93idf
+doc.tdm2 <- weightTfIdf(doc.tdm)
+inspect(doc.tdm2)
+
+# (2) can convert to matrix for statistical analysis
+tdm.mat <- as.matrix(doc.tdm)
+
+# tidy up
+rm(list=ls())
 
 # classification of tweets (JSON) -----------------------------------------
 
@@ -95,41 +118,51 @@ setwd("~/workshops/Text Mining/data/json_files/")
 library(RJSONIO)
 files <- dir() # vector of all json file names
 files
-length(files) 
+length(files) # 1000 tweets
 # What does the fromJSON() do?
 files[1]
-fromJSON(files[1])
+test <- fromJSON(files[1]) # reads in json file as a list object
+test
+test$text # extract the text
+test$created_at # extract the date of the tweet
 
-# "apply" the fromJSON() function to all JSON files and create a single list object
-tdata <- lapply(files, fromJSON) 
-tdata[[1]] # see first tweet
+# we can combine operations: read json and extract text/date
+fromJSON(files[1])$text
+rm(test)
+
+# "apply" the fromJSON() function to all JSON files and extract tweet and date;
+# we'll use laply() from the plyr package; just like sapply(files, fromJSON), but faster
+library(plyr)
+tweets <- laply(files, function(x)fromJSON(x)$text, .progress = "text") 
+tweets[1] # see first tweet
+
+dates <- laply(files, function(x)fromJSON(x)$created_at, .progress = "text") 
+dates[1] # see date of first tweet
 
 # STEP 2: prep twitter data
 
-# extract tweets
-tdata[[1]]$text # first tweet
-# load all tweets into a vector
-tweets <- sapply(tdata,function(x) x$text)
-tweets[1]
-# see random sample of 10 tweets
-set.seed(1) # so we all seee the same tweets
-sample(tweets,10)
-
-# create variable measuring days after resignation;
+# create variable measuring days after resignation; 
+# seems to be a good predictor of relevance;
 # 2012-06-08: Dragas and Kington ask for Sullivan's resignation
-# extract date of tweet (example: "Sun Jun 17 20:20:03 +0000 2012")
-dates <- as.Date(sapply(tdata,function(x) x$created_at), format="%a %b %d %H:%M:%S %z %Y")
+
+# convert dates to R date object
+# format: "Sun Jun 17 20:20:03 +0000 2012")
+dates <- as.Date(dates, format="%a %b %d %H:%M:%S %z %Y")
+# see help(strftime) for conversion specifications
+dates
+
 # days after 2012-06-08
 daysAfter <- as.numeric(dates - as.Date("2012-06-08"))
+daysAfter
 
-# remove some objects to free up some memory
-rm(tdata, dates, files)
+# tidy up
+rm(dates, files)
 
 # STEP 3: create DocumentTermMatrix
 
 library(tm)
 # create corpus
-corpus <- Corpus(VectorSource(tweets)) # this may take a few moments
+corpus <- Corpus(VectorSource(tweets)) 
 
 # clean up corpus
 corpus <- tm_map(corpus, tolower)
@@ -140,42 +173,49 @@ corpus <- tm_map(corpus, removeNumbers)
 
 # create DTM; only keep terms that appear in at least 5 tweets
 dtm <- DocumentTermMatrix(corpus, control = list(bounds = list(global = c(5,Inf))))
+dtm
 inspect(dtm[1:5,1:5])
 colnames(dtm) # see selected words
 
 # convert document-term matrix (DTM) to matrix form;
 # need this for analysis
 X <- as.matrix(dtm)
-X[1:5,1:5]
 
-# remove some objects to free up some memory
+# tidy up
 rm(corpus, dtm)
 
 # STEP 4: export sample to classify
 
+# IMPORTANT TO SET SEED:
 set.seed(12)
 # extract sample (250 tweets) for classification
 sample.tweets <- tweets[sample(1:length(tweets),250)] 
-# export 100 sample tweets for indicator to be added
-setwd("~/workshops/Text Mining/data/")
+# export 250 sample tweets for indicator to be added
+
+#### DO NOT DO THIS DURING WORKSHOP ####
 write.csv(sample.tweets,"sample.tweets.csv", row.names=FALSE)
 # open file in Excel and add indicator (1 = relevant, 0 = not relevant)
-# Done prior to workshop
+#### Done prior to workshop ####
 
 # STEP 5: read in classified tweets and combine with DTM matrix
 
-# read data with indicators (1= relevant, 0=not relevant)
+# will use DTM matrix and days after as the predictors in a model;
+# read data with indicators (1 = relevant, 0 = not relevant)
 # these data sampled with set.seed(12)
+setwd("~/workshops/Text Mining/data/")
 stwt <- read.csv("sample.tweets.csv", header=TRUE)
-
-# need to sample from DTM 
+head(stwt)
+# need to sample same tweets from DTM!
+# will use these 250 tweets to build model
 set.seed(12)
 sampX <- X[sample(1:length(tweets),250),] 
-# need to save what wasn't sampled for classification after model-building
+# these are the remaining tweets to be classified after model-building
 set.seed(12)
 restX <- X[-sample(1:length(tweets),250),] 
 
 # add daysAfter to DTM matrices; it will be an additional predictor
+# the days after need to match up to their respective tweets, 
+# so use the same set.seed() again
 set.seed(12)
 sampX <- cbind(sampX,daysAfter[sample(1:length(daysAfter),250)]) 
 colnames(sampX)[dim(sampX)[2]] <- "days.after"
@@ -191,13 +231,12 @@ sum(Y)/length(Y) # percent relevant
 
 # classify using logistic regression (The Lasso)
 library(glmnet)
-# define a range of lambda values (ie, tuning parameter)
-grid <- 10^seq(10,-2, length=100) 
+# see Glmnet Vignette: http://www.stanford.edu/~hastie/glmnet/glmnet_alpha.html
 set.seed(1)
-# create training and testing sets
-train <- sample(1:nrow(sampX), nrow(sampX)/2)
+# create training and testing sets of our 250 classified tweets
+train <- sample(1:nrow(sampX), nrow(sampX)/2) # 50/50 split
 test <- (-train)
-y.test <- Y[test]
+y.test <- Y[test] # need this to evaluate model performance
 
 # fit logistic model via lasso
 # alpha=1 is lasso; alpha=0 is ridge regression
@@ -206,18 +245,39 @@ y.test <- Y[test]
 set.seed(1)
 cv.out <- cv.glmnet(sampX[train,], factor(Y[train]), alpha=1, family="binomial",  type.measure = "class")
 plot(cv.out)
+# what are the dotted vertical lines?
+# lambda.min - value of lambda that gives minimum cvm.
+# lambda.1se - largest value of lambda such that error is within 1 standard error of the minimum
+
 bestlam <- cv.out$lambda.min # best lambda as selected by cross validation
+bestlam
 
+# the lasso model with lambda chosen by cross-validation contains only training data;
+# re-run model with all data 
+out <- glmnet(sampX, factor(Y), alpha=1, family="binomial")
 
-# the lasso model with lambda chosen by cross-validation contains only selected variables
-# re-run model with all data using selected lambda
-out <- glmnet(sampX, factor(Y), alpha=1, lambda=grid, family="binomial")
 lasso.coef <- predict(out, type="coefficients", s=bestlam)
 # see selected coefficients
-lasso.coef 
+lasso.coef
+
 
 # see how it works on training set
-sum(ifelse(predict(out, newx = sampX, s = bestlam) > 0, 1, 0) == Y)/250
+predict(out, newx = sampX, s = bestlam) # raw predictions
+ifelse(predict(out, newx = sampX, s = bestlam) > 0, 1, 0) # classifications
+sum(ifelse(predict(out, newx = sampX, s = bestlam) > 0, 1, 0) == Y)/250 # proportion correct
+# 80%
+
+# create a confusion matrix
+# pY = predicted classification (1 = relevant tweet, 0 = not relevant)
+pY  <- ifelse(predict(out, newx = sampX, s = bestlam) > 0, 1, 0)
+matrix(c(sum(pY==1 & Y==1)/length(Y), 
+         sum(pY==0 & Y==1)/length(Y), # false negatives
+         sum(pY==1 & Y==0)/length(Y), # false positives
+         sum(pY==0 & Y==0)/length(Y)), 
+       nrow=2, byrow=T,
+       dimnames=list(c("pred=1","pred=0"),
+                     c("actual=1", "actual=0")))
+# more false positives than false negatives
 
 # STEP 7: classify tweets
 
@@ -225,13 +285,19 @@ sum(ifelse(predict(out, newx = sampX, s = bestlam) > 0, 1, 0) == Y)/250
 predY <- predict(cv.out, newx=restX, s="lambda.min", type="class")
 
 # combine prediction with tweets
+set.seed(12)
 classifiedTweets <- cbind(predY, tweets[-sample(1:length(tweets),250)])
-# check a few
+# first 5
+classifiedTweets[1:5,]
+# check randomly
 classifiedTweets[sample(750,1),]
+
+# tidy up
+rm(list=ls())
 
 
 # sentiment analysis (NY Times API) ----------------------------------------
-setwd("workshops/Text Mining/data")
+setwd("~/workshops/Text Mining/data")
 
 # The New York Times API (application programming interfaces) allows you to programmatically 
 # access New York Times data for use in your own applications.
@@ -240,7 +306,7 @@ setwd("workshops/Text Mining/data")
 
 library(rjson)
 
-# Example: request comments on a story using The Community API
+# Request comments on a story using The Community API
 # Use a special URL formatted as follows:
 # http://api.nytimes.com/svc/community/{version}/comments/url/{match-
 # type}[.response-format]?{url=url-to-match}&[offset=int]$&[sort=newest]&api-key={your-API-key}
@@ -252,17 +318,21 @@ library(rjson)
 
 # In this example....
 # match-type = exact-match
+# If you specify exact-match, the first 25 comments associated with that URL will be returned if the URL is found.
 # .response-format = .json
 # url = http://www.nytimes.com/2013/10/06/magazine/and-then-steve-said-let-there-be-an-iphone.html
-
 # offset = 25
 # sort = recommended
+
+# This will NOT work, as I have not included my API key in this script;
+# To try it with your own api key, replace "api-key=85c35331a865573538990d5ddc0c505d:19:28348776" with
+# api-key=<your API key>
 
 theCall <- "http://api.nytimes.com/svc/community/v2/comments/url/exact-match.json?url=
   http://www.nytimes.com/2013/10/06/magazine/and-then-steve-said-let-there-be-an-iphone.html&
   offset=25&sort=recommended&api-key=85c35331a865573538990d5ddc0c505d:19:28348776"
 test <- fromJSON(file=theCall)
-
+test
 # see just the first comment
 test$results$comments[[1]]$commentBody
 
@@ -273,11 +343,11 @@ sapply(test$results$comments, function(x)x$commentBody)
 # url: link to page article with comments
 # offset values: Positive integer, multiple of 25
 # sort values: newest | oldest | recommended | replied | editors-selection
-nytComments <- function(url,offset,nysort){
+nytComments <- function(url,offset,nysort, apikey){
   x <- paste("http://api.nytimes.com/svc/community/v2/comments/url/exact-match.json?url=",url,
              "&offset=",offset,
              "&sort=",nysort,
-             "&api-key=85c35331a865573538990d5ddc0c505d:19:28348776",sep="")
+             "&api-key=", apikey, sep="")
   y <- fromJSON(file=x)
   z <- sapply(y$results$comments,function(x)x$commentBody)
   z
@@ -286,7 +356,8 @@ nytComments <- function(url,offset,nysort){
 # test it out
 nytComments(url="http://www.nytimes.com/2013/10/06/magazine/and-then-steve-said-let-there-be-an-iphone.html",
             offset=25,
-            nysort="recommended")
+            nysort="recommended",
+            apikey="85c35331a865573538990d5ddc0c505d:19:28348776")
 
 # get 100 comments
 # loop through 25, 50, 75, 100
@@ -295,36 +366,36 @@ comments <- c()
 for(i in seq(25,100,25)){ 
 comments <- c(comments, nytComments(url=story,
                         offset=as.character(i),
-                        nysort="recommended"))
+                        nysort="recommended",
+                        apikey="85c35331a865573538990d5ddc0c505d:19:28348776"))
 }
 
 # save(comments,file="comments.Rda")
-# load("comments.Rda")
+load("comments.Rda")
 
 
 # sentiment analysis function
 
-#  implement a very simple algorithm to estimate
-#  sentiment, assigning a integer score by subtracting the number 
-#  of occurrences of negative words from that of positive words.
-#  Courtesy of:
-#  https://raw.github.com/jeffreybreen/twitter-sentiment-analysis-tutorial-201107/08a269765a6b185d5f3dd522c876043ba9628715/R/sentiment.R
+# implement a very simple algorithm to estimate
+# sentiment, assigning a integer score by subtracting the number 
+# of occurrences of negative words from that of positive words.
+# Courtesy of:
+# https://raw.github.com/jeffreybreen/twitter-sentiment-analysis-tutorial-201107/08a269765a6b185d5f3dd522c876043ba9628715/R/sentiment.R
 
 # A list of positive and negative opinion words or sentiment words for English
-# (around 6800 words). This list was compiled over many years starting from 
-# Hu and Liu, KDD-2004.
+# (around 6800 words). Courtesy of Hu and Liu.
+# see http://www.cs.uic.edu/~liub/FBS/sentiment-analysis.html
 
-# http://www.cs.uic.edu/~liub/FBS/opinion-lexicon-English.rar
-
-poswords <- scan("~/workshops/Text Mining/opinion-lexicon-English/positive-words.txt",
+poswords <- scan("~/workshops/Text Mining/data/opinion-lexicon-English/positive-words.txt",
                  what="character", comment.char=";")
-negwords <- scan("~/workshops/Text Mining/opinion-lexicon-English/negative-words.txt",
+negwords <- scan("~/workshops/Text Mining/data/opinion-lexicon-English/negative-words.txt",
                  what="character", comment.char=";")
+poswords[1:5]
+negwords[1:5]
 
+library(stringr) # for str_split() function
 
-sentence <- comments[1]
-library(stringr)
-
+# create a function to score sentiment for each comment
 score.sentiment <- function(sentence){
       # clean up sentences with R's regex-driven global substitute, gsub():
       sentence <- gsub("<[^>]*>", " ",sentence) # remove html tags
@@ -333,17 +404,18 @@ score.sentiment <- function(sentence){
       sentence <- gsub("\\d+", "", sentence) # digits
       sentence <- tolower(sentence) # convert to lower case
       
-      # split into words. str_split is in the stringr package
+      # split into words; str_split is in the stringr package
+      # \\s+ means split sentence where a space precedes a word
       word.list <- str_split(sentence, "\\s+")
-      # sometimes a list() is one level of hierarchy too much
+      # convert list into vector
       words <- unlist(word.list)
       
       # compare our words to the dictionaries of positive & negative terms
+      # match() returns the position of the matched term or NA
       pos.matches <- match(words, poswords)
       neg.matches <- match(words, negwords)
       
-      # match() returns the position of the matched term or NA
-      # we just want a TRUE/FALSE:
+      # we just want a TRUE/FALSE vector (0 and 1)
       pos.matches <- !is.na(pos.matches)
       neg.matches <- !is.na(neg.matches)
       
@@ -378,9 +450,11 @@ comments[which(scores==7)]
 comments[which(scores==-5)]
 comments[which(scores==-4)]
 
+# tidy up
+rm(list=ls())
 
-# summarize/wordcloud (web scraping) ----------------------------------------
-setwd("workshops/Text Mining/data")
+# clustering (web scraping) ----------------------------------------
+setwd("~/workshops/Text Mining/data")
 
 # Interested in summarizing reviews of FitBit; want to know more about the negative reviews
 # http://www.amazon.com/Fitbit-Wireless-Activity-Tracker-Charcoal/product-reviews/B0095PZHZE/ref=cm_cr_pr_top_link_2?ie=UTF8&pageNumber=1
@@ -388,7 +462,7 @@ setwd("workshops/Text Mining/data")
 # STEP 1: develop strategy for scraping data
 # read source code page 1 of reviews
 test <- readLines("http://www.amazon.com/Fitbit-Wireless-Activity-Tracker-Charcoal/product-reviews/B0095PZHZE/ref=cm_cr_pr_top_link_2?ie=UTF8&pageNumber=1")
-
+test
 # work to get reviews
 # get indices of where these phrases occur and count how many; tells us how many reviews on page
 length(grep("This review is from:", test))
@@ -424,7 +498,9 @@ rating
 
 
 # STEP 2: write formal code to extract reviews
+##############################################
 # do not run during workshop; takes too long!
+##############################################
 
 reviews <- rep(NA, 5000) # vector to store reviews
 ratings <- rep(NA, 5000) # vector to store ratings
@@ -470,9 +546,10 @@ barplot(table(allReviews$rating))
 badReviews <- subset(allReviews, subset= rating=="1")
 dim(badReviews)
 
-# make Term-Document matrix of words
+# make Corpus and Document-Term matrix of 1-star reviews
 library(tm)
 revCorp <- Corpus(VectorSource(badReviews$review))
+revCorp
 revCorp <- tm_map(revCorp, tolower)
 revCorp <- tm_map(revCorp, stripWhitespace)
 revCorp <- tm_map(revCorp, removeWords, c(stopwords("english"),"fitbit", "zip"))
@@ -484,53 +561,43 @@ library("wordcloud")
 wordcloud(revCorp,min.freq=15)
 wordcloud(revCorp,min.freq=15, random.order=F, rot.per=0) # less artsy
 
-# wordcloud from frequency counts
-tdm <- TermDocumentMatrix(revCorp)
-m <- as.matrix(tdm)
-v <- sort(rowSums(m),decreasing=TRUE)
-v[1:20] # top 20 most frequent terms
-d <- data.frame(word = names(v),freq=v)
-wordcloud(d$word,d$freq, min.freq=15)
+# create document-term matrix
+dtm <- DocumentTermMatrix(revCorp, control = list(bounds = list(global = c(10,Inf))))
+dtm
 
-
-library(RColorBrewer)
-pal <- brewer.pal(4,"Dark2")
-wordcloud(words=d$word,freq=d$freq,min.freq=15,colors=pal)
-  
-findFreqTerms(tdm, lowfreq=15)
-# find associations for the term "battery"
-findAssocs(tdm, "battery", 0.5)
-
-# create a dictionary of words;
-# we'll use this to create a DTM for just those words
-d <- Dictionary(c("battery", "work", "service"))
-inspect(DocumentTermMatrix(revCorp, list(dictionary = d)))
-# certain documents mention battery a lot
-
-# save the DTM
-dtm <- DocumentTermMatrix(revCorp, list(dictionary = d))
-# extract the rownames (doc numbers) where battery mentioned more than 2 times
-ind <- rownames(subset(as.matrix(dtm), subset= as.matrix(dtm)[,1]>2) )
-# see the reviews where battery mentioned more than 2 times
-badReviews$review[as.numeric(ind)]
-
-# cluster analysis: do they fall naturall into groups
+# cluster analysis: do they fall naturally into groups?
 # k-means clustering - have to specify number of groups
 azRev.sd <- scale(dtm)
 set.seed(9)
 km.out <- kmeans(azRev.sd, 6, nstart=50)
-km.clusters <- km.out$cluster  
+km.clusters <- km.out$cluster
 table(km.clusters)
 
 # add class membership to data frame
 badReviews[,"km.clusters"] <- km.clusters
 
 # how are they similar within clusters?
-badReviews[badReviews$km.clusters==1,"review"]
-badReviews[badReviews$km.clusters==5,"review"]
+# write a function to examine each group and look at words 
+# occuring most frequently
 
+groupInfo <- function(x){
+  group <- Corpus(VectorSource(badReviews[badReviews$km.clusters==x,"review"]))
+  group <- tm_map(group, tolower)
+  group <- tm_map(group, removeWords, c(stopwords("english"),"fitbit", "zip"))
+  group <- tm_map(group, removePunctuation) 
+  group <- tm_map(group, removeNumbers) 
+  tdm <- TermDocumentMatrix(group)
+  m <- as.matrix(tdm)
+  v <- sort(rowSums(m),decreasing=TRUE)
+  v[1:20] # top 20 most frequent terms
+}
 
-
+groupInfo(1)
+groupInfo(2)
+groupInfo(3)
+groupInfo(4)
+groupInfo(5)
+groupInfo(6)
 #############################################################################
 #
 # Bonus material: How to use the Twitter API with R
