@@ -4,36 +4,36 @@
 # Clay Ford
 
 
-
-# need to provide workshop attendees zip file with directory structure;
-# probably need to provide instructions about where to unzip;
-# test that out on your computer!
-
-
 # Corpus/TDM Example ------------------------------------------------------
 
-# toy example of turning text into numbers
-setwd("~/workshops/Text Mining/data/docs")
-# save files name to vector
+# toy example of turning text into numbers;
+# this directory contains text files with one line of text each.
+setwd("~/TextMining/docs")
+# see files in working directory
 dir()
+# save files name to vector
 files <- dir()
 files
 
-# read in text of files and store in a vector
+# read in text of files and store in a vector;
 # create a vector to store content of files
 allData <- rep(NA,length(files))
 allData
 
-# METHOD 1
+# readLines() function reads lines out of text documents
+readLines(files[1])
+
+# One way to read in text:
 # create a "for" loop that reads the lines of each file
 for(i in 1:length(files)){
   allData[i] <- readLines(files[i])  
 }
 allData # vector; each element contains content of text files
 
-# METHOD 2
-# use sapply with an anonymous function
-allData <- sapply(files, function(x)readLines(x))
+# another way to read in text:
+# use sapply with readLines
+allData <- sapply(files, readLines)
+allData
 
 # load tm, a text mining package for R
 # install.packages("tm")
@@ -45,9 +45,9 @@ doc.corpus
 # use the inspect() function to look at the corpus
 inspect(doc.corpus)
 inspect(doc.corpus[3])
-str(doc.corpus) # see the structure of the corpus
+str(doc.corpus) # see the structure of the corpus; looks like a database
 
-# next create a basic Term Document Matrix (rows=terms, columns=documents)
+# next create a basic Term-Document Matrix (rows=terms, columns=documents)
 doc.tdm <- TermDocumentMatrix(doc.corpus)
 inspect(doc.tdm) 
 # notice...
@@ -83,7 +83,7 @@ inspect(doc.corpus)
 doc.tdm <- TermDocumentMatrix(doc.corpus)
 inspect(doc.tdm)
 # notice...
-# - all words reduced to lower case
+# - fewer terms
 # - punctuation and numbers gone
 # - stopwords gone
 # - no distinction between Iron in "Iron Mainden" and the iron for pressing clothes
@@ -101,8 +101,9 @@ inspect(doc.tdm)
 doc.tdm2 <- weightTfIdf(doc.tdm)
 inspect(doc.tdm2)
 
-# (2) can convert to matrix for statistical analysis
+# (2) can convert to actual numeric matrix for statistical analysis
 tdm.mat <- as.matrix(doc.tdm)
+tdm.mat
 
 # tidy up
 rm(list=ls())
@@ -112,15 +113,14 @@ rm(list=ls())
 # STEP 1: read in twitter JSON files
 
 # set directory with tweets
-setwd("~/workshops/Text Mining/data/json_files/")
+setwd("~/TextMining/json_files/")
 
 # load RJSONIO package which allows us to read in JSON files using fromJSON() function
 library(RJSONIO)
 files <- dir() # vector of all json file names
 files
-length(files) # 1000 tweets
+
 # What does the fromJSON() do?
-files[1]
 test <- fromJSON(files[1]) # reads in json file as a list object
 test
 test$text # extract the text
@@ -163,13 +163,15 @@ rm(dates, files)
 library(tm)
 # create corpus
 corpus <- Corpus(VectorSource(tweets)) 
-
+corpus
+inspect(corpus[1]) # see first tweet
 # clean up corpus
 corpus <- tm_map(corpus, tolower)
 corpus <- tm_map(corpus, stripWhitespace)
 corpus <- tm_map(corpus, removeWords, stopwords('english'))
 corpus <- tm_map(corpus, removePunctuation) 
 corpus <- tm_map(corpus, removeNumbers) 
+inspect(corpus[1])
 
 # create DTM; only keep terms that appear in at least 5 tweets
 dtm <- DocumentTermMatrix(corpus, control = list(bounds = list(global = c(5,Inf))))
@@ -189,7 +191,7 @@ rm(corpus, dtm)
 # IMPORTANT TO SET SEED:
 set.seed(12)
 # extract sample (250 tweets) for classification
-sample.tweets <- tweets[sample(1:length(tweets),250)] 
+sample.tweets <- tweets[sample(length(tweets),250)] 
 # export 250 sample tweets for indicator to be added
 
 #### DO NOT DO THIS DURING WORKSHOP ####
@@ -202,74 +204,77 @@ write.csv(sample.tweets,"sample.tweets.csv", row.names=FALSE)
 # will use DTM matrix and days after as the predictors in a model;
 # read data with indicators (1 = relevant, 0 = not relevant)
 # these data sampled with set.seed(12)
-setwd("~/workshops/Text Mining/data/")
+setwd("~/TextMining/")
 stwt <- read.csv("sample.tweets.csv", header=TRUE)
 head(stwt)
 # need to sample same tweets from DTM!
 # will use these 250 tweets to build model
 set.seed(12)
-sampX <- X[sample(1:length(tweets),250),] 
+sampX <- X[sample(length(tweets),250),] 
 # these are the remaining tweets to be classified after model-building
 set.seed(12)
-restX <- X[-sample(1:length(tweets),250),] 
+restX <- X[-sample(length(tweets),250),] 
 
-# add daysAfter to DTM matrices; it will be an additional predictor
+# add daysAfter to DTM matrices; it will be an additional predictor;
 # the days after need to match up to their respective tweets, 
 # so use the same set.seed() again
 set.seed(12)
-sampX <- cbind(sampX,daysAfter[sample(1:length(daysAfter),250)]) 
+sampX <- cbind(sampX,daysAfter[sample(length(daysAfter),250)]) 
 colnames(sampX)[dim(sampX)[2]] <- "days.after"
 set.seed(12)
-restX <- cbind(restX,daysAfter[-sample(1:length(daysAfter),250)]) 
+restX <- cbind(restX,daysAfter[-sample(length(daysAfter),250)]) 
 colnames(restX)[dim(restX)[2]] <- "days.after"
 
 # create a response vector for analysis
 Y <- stwt$ind
 sum(Y)/length(Y) # percent relevant
 
+# now we're ready to build a model...
+
 # STEP 6: create classification model using the Lasso
 
 # classify using logistic regression (The Lasso)
 library(glmnet)
 # see Glmnet Vignette: http://www.stanford.edu/~hastie/glmnet/glmnet_alpha.html
-set.seed(1)
+
 # create training and testing sets of our 250 classified tweets
-train <- sample(1:nrow(sampX), nrow(sampX)/2) # 50/50 split
-test <- (-train)
-y.test <- Y[test] # need this to evaluate model performance
+set.seed(1)
+train <- sample(nrow(sampX), nrow(sampX)/2) # 50/50 split
+test <- (-train) # rows not in the training set; hold this data out of model building
+y.test <- Y[test] # Classifications of tweets not used in model building; need this to evaluate model performance
 
 # fit logistic model via lasso
 # alpha=1 is lasso; alpha=0 is ridge regression
-# perform cross-validation and find the best lambda (ie, the lowest lambda);
+# perform cross-validation and find the best lambda (ie, lambda with lowest misclassification error);
 # type.measure="class" gives misclassification error rate
 set.seed(1)
-cv.out <- cv.glmnet(sampX[train,], factor(Y[train]), alpha=1, family="binomial",  type.measure = "class")
+cv.out <- cv.glmnet(sampX[train,], factor(Y[train]), alpha=1, family="binomial", type.measure = "class")
 plot(cv.out)
 # what are the dotted vertical lines?
-# lambda.min - value of lambda that gives minimum cvm.
-# lambda.1se - largest value of lambda such that error is within 1 standard error of the minimum
+# lambda.min - value of log(lambda) that gives misclassification error rate.
+# lambda.1se - largest value of log(lambda) such that error is within 1 standard error of the minimum
 
 bestlam <- cv.out$lambda.min # best lambda as selected by cross validation
 bestlam
-
+log(bestlam) # what's in the plot
 # the lasso model with lambda chosen by cross-validation contains only training data;
 # re-run model with all data 
 out <- glmnet(sampX, factor(Y), alpha=1, family="binomial")
 
-lasso.coef <- predict(out, type="coefficients", s=bestlam)
 # see selected coefficients
+lasso.coef <- predict(out, type="coefficients", s=bestlam)
 lasso.coef
 
 
 # see how it works on training set
-predict(out, newx = sampX, s = bestlam) # raw predictions
-ifelse(predict(out, newx = sampX, s = bestlam) > 0, 1, 0) # classifications
-sum(ifelse(predict(out, newx = sampX, s = bestlam) > 0, 1, 0) == Y)/250 # proportion correct
+predict(out, newx = sampX, s = bestlam, type="class")
+predict(out, newx = sampX, s = bestlam, type="class") == as.character(Y) # compare to Truth
+sum(predict(out, newx = sampX, s = bestlam, type="class") == as.character(Y))/250 # proportion correct
 # 80%
 
 # create a confusion matrix
 # pY = predicted classification (1 = relevant tweet, 0 = not relevant)
-pY  <- ifelse(predict(out, newx = sampX, s = bestlam) > 0, 1, 0)
+pY  <- as.numeric(predict(out, newx = sampX, s = bestlam, type="class"))
 matrix(c(sum(pY==1 & Y==1)/length(Y), 
          sum(pY==0 & Y==1)/length(Y), # false negatives
          sum(pY==1 & Y==0)/length(Y), # false positives
@@ -282,22 +287,27 @@ matrix(c(sum(pY==1 & Y==1)/length(Y),
 # STEP 7: classify tweets
 
 # now make predictions for tweets with no classification
-predY <- predict(cv.out, newx=restX, s="lambda.min", type="class")
+predY <- predict(out, newx=restX, s=bestlam, type="class")
 
-# combine prediction with tweets
+# combine prediction with tweets and make data frame
 set.seed(12)
-classifiedTweets <- cbind(predY, tweets[-sample(1:length(tweets),250)])
+classifiedTweets <- data.frame(relevant=factor(predY), 
+                               text=tweets[-sample(1:length(tweets),250)],
+                               stringsAsFactors=F)
 # first 5
 classifiedTweets[1:5,]
-# check randomly
-classifiedTweets[sample(750,1),]
-
+# check a few at random
+classifiedTweets[sample(750,5),]
+# pull out just the relevant tweets
+relevantTweets <- subset(classifiedTweets,subset= relevant=="1") 
+# check a few at random
+relevantTweets[sample(dim(relevantTweets)[1],5),]
 # tidy up
 rm(list=ls())
 
 
 # sentiment analysis (NY Times API) ----------------------------------------
-setwd("~/workshops/Text Mining/data")
+setwd("~/TextMining/")
 
 # The New York Times API (application programming interfaces) allows you to programmatically 
 # access New York Times data for use in your own applications.
@@ -324,10 +334,6 @@ library(rjson)
 # offset = 25
 # sort = recommended
 
-# This will NOT work, as I have not included my API key in this script;
-# To try it with your own api key, replace "api-key=85c35331a865573538990d5ddc0c505d:19:28348776" with
-# api-key=<your API key>
-
 theCall <- "http://api.nytimes.com/svc/community/v2/comments/url/exact-match.json?url=
   http://www.nytimes.com/2013/10/06/magazine/and-then-steve-said-let-there-be-an-iphone.html&
   offset=25&sort=recommended&api-key=85c35331a865573538990d5ddc0c505d:19:28348776"
@@ -339,11 +345,11 @@ test$results$comments[[1]]$commentBody
 # see all comments
 sapply(test$results$comments, function(x)x$commentBody)
 
-# function to help download NY Times comments using API call
+# function to help download 25 NY Times comments at a time using API call
 # url: link to page article with comments
 # offset values: Positive integer, multiple of 25
 # sort values: newest | oldest | recommended | replied | editors-selection
-nytComments <- function(url,offset,nysort, apikey){
+nytComments <- function(url,offset,nysort,apikey){
   x <- paste("http://api.nytimes.com/svc/community/v2/comments/url/exact-match.json?url=",url,
              "&offset=",offset,
              "&sort=",nysort,
@@ -371,6 +377,7 @@ comments <- c(comments, nytComments(url=story,
 }
 
 # save(comments,file="comments.Rda")
+# or skip the loop and load the following:
 load("comments.Rda")
 
 
@@ -382,18 +389,17 @@ load("comments.Rda")
 # Courtesy of:
 # https://raw.github.com/jeffreybreen/twitter-sentiment-analysis-tutorial-201107/08a269765a6b185d5f3dd522c876043ba9628715/R/sentiment.R
 
-# A list of positive and negative opinion words or sentiment words for English
+# Load lists of positive and negative sentiment words for English
 # (around 6800 words). Courtesy of Hu and Liu.
 # see http://www.cs.uic.edu/~liub/FBS/sentiment-analysis.html
 
-poswords <- scan("~/workshops/Text Mining/data/opinion-lexicon-English/positive-words.txt",
+poswords <- scan("~/TextMining/opinion-lexicon-English/positive-words.txt",
                  what="character", comment.char=";")
-negwords <- scan("~/workshops/Text Mining/data/opinion-lexicon-English/negative-words.txt",
+negwords <- scan("~/TextMining/opinion-lexicon-English/negative-words.txt",
                  what="character", comment.char=";")
-poswords[1:5]
-negwords[1:5]
-
-library(stringr) # for str_split() function
+# see a few of the words
+poswords[sample(length(poswords),5)]
+negwords[sample(length(negwords),5)]
 
 # create a function to score sentiment for each comment
 score.sentiment <- function(sentence){
@@ -404,9 +410,8 @@ score.sentiment <- function(sentence){
       sentence <- gsub("\\d+", "", sentence) # digits
       sentence <- tolower(sentence) # convert to lower case
       
-      # split into words; str_split is in the stringr package
-      # \\s+ means split sentence where a space precedes a word
-      word.list <- str_split(sentence, "\\s+")
+      # split into words; \\s+ means split sentence where a space precedes a word
+      word.list <- strsplit(sentence, "\\s+")
       # convert list into vector
       words <- unlist(word.list)
       
@@ -433,28 +438,28 @@ sample <- c("You're awesome and I love you",
 lapply(sample, score.sentiment) 
 
 # Score the comments and save
-scores <- unlist(lapply(comments, score.sentiment))
+scores <- sapply(comments, score.sentiment)
 
 # summaries
 hist(scores)
 table(scores)
-mean(scores)
-median(scores)
-range(scores)
+barplot(table(scores))
+summary(scores)
 
 
-# "positive" comments
+# most "positive" comment
 comments[which(scores==20)]
-comments[which(scores==7)]
-# "negative" comments
-comments[which(scores==-5)]
+# most "negative" comment
 comments[which(scores==-4)]
 
 # tidy up
 rm(list=ls())
 
+
 # clustering (web scraping) ----------------------------------------
-setwd("~/workshops/Text Mining/data")
+# RUN THIS IN R, Not R Studio
+
+setwd("~/TextMining/")
 
 # Interested in summarizing reviews of FitBit; want to know more about the negative reviews
 # http://www.amazon.com/Fitbit-Wireless-Activity-Tracker-Charcoal/product-reviews/B0095PZHZE/ref=cm_cr_pr_top_link_2?ie=UTF8&pageNumber=1
@@ -462,37 +467,24 @@ setwd("~/workshops/Text Mining/data")
 # STEP 1: develop strategy for scraping data
 # read source code page 1 of reviews
 test <- readLines("http://www.amazon.com/Fitbit-Wireless-Activity-Tracker-Charcoal/product-reviews/B0095PZHZE/ref=cm_cr_pr_top_link_2?ie=UTF8&pageNumber=1")
-test
+
 # work to get reviews
-# get indices of where these phrases occur and count how many; tells us how many reviews on page
-length(grep("This review is from:", test))
-
-# text that always appears before review
-grep("This review is from:", test)
-
-# test that alwats appears after review
-grep( "Help other customers find the most helpful reviews", test)
-
-# get just the first review
-test[grep("This review is from:", test)[1]:
-       grep( "Help other customers find the most helpful reviews", test)[1]]
-
-# this returns a vector of length 7; the 4th element always contains the review
-test[grep("This review is from:", test)[1]:
-                 grep( "Help other customers find the most helpful reviews", test)[1]][4]
+# inspecting page source shows us that reviews have a div class of "reviewText"
+# find index numbers in test vector that contain "class="reviewText""
+grep("class=\"reviewText\"",test)
 
 # therefore this pulls only reviews
-test[grep("This review is from:", test)[1] +3]
-
+test[grep("class=\"reviewText\"",test)][1]
 
 # work to get stars
 # get number of stars for each review
 # appears that rating is preceded by following code:
 grep("margin-right:5px;\"><span class=\"swSprite s_star_", test)
 
-# pull all lines of code into vector
+# pull all lines of star code into vector
 rating <- test[grep("margin-right:5px;\"><span class=\"swSprite s_star_", test)]
 rating
+# extract the number of stars
 rating <- substr(rating,70,70)
 rating
 
@@ -512,9 +504,9 @@ repeat{
                              i,sep=""))
   if(length(grep("This review is from:", getPage)) == 0) break else {
     for(j in 1:length(grep("This review is from:", getPage))){
-      temp1 <- getPage[grep("margin-right:5px;\"><span class=\"swSprite s_star_", getPage)][j]
-      ratings[n] <- substr(temp1,70,70)
-      reviews[n]  <- getPage[grep("This review is from:", getPage)[j] + 3]
+      temp1 <- getPage[grep("margin-right:5px;\"><span class=\"swSprite s_star_", getPage)][j] # get the lines with ratings
+      ratings[n] <- substr(temp1,70,70) # extract the rating
+      reviews[n]  <- getPage[grep("class=\"reviewText\"", getPage)][j] # extract the review
       n <- n + 1
     }
     i <- i + 1
@@ -524,20 +516,23 @@ repeat{
 reviews <- reviews[!is.na(reviews)]
 ratings <- ratings[!is.na(ratings)]
 # make into a data frame  
-allReviews <- data.frame(review=reviews, rating=ratings, stringsAsFactors=FALSE)
-# remove HTML tags from text of reviews
+allReviews <- data.frame(review=reviews, rating=as.numeric(ratings), stringsAsFactors=FALSE)
+# remove HTML tags from text of reviews using a regular expression
 allReviews$review <- gsub("<[^>]*>", " ",allReviews$review) 
+# regexp translation: "<" followed by anything but ">" to ">"
 
 # save for later use
 save(allReviews, file="amzReviews.Rda")
 
 # load this for workshop
-load("amzReviews.Rda") # collected 16-Jan-2014
+load("amzReviews.Rda") # collected 04-Mar-2014
+head(allReviews)
+str(allReviews)
 
 # STEP 3: summarize and investigate
 
 # avg customer review
-mean(as.numeric(allReviews$rating))
+mean(allReviews$rating)
 # distribution of ratings
 table(allReviews$rating)
 barplot(table(allReviews$rating))
@@ -561,20 +556,41 @@ library("wordcloud")
 wordcloud(revCorp,min.freq=15)
 wordcloud(revCorp,min.freq=15, random.order=F, rot.per=0) # less artsy
 
-# create document-term matrix
+# in the wordcloud:
+# notice battery and batteries, replacement and replaced, 
+# return and returned, work and works and worked;
+
+# let's stem the words:
+revCorp <- tm_map(revCorp, stemDocument) 
+wordcloud(revCorp,min.freq=15, random.order=F, rot.per=0) 
+
+# create document-term matrix; want words that appear in at least 10 documents
 dtm <- DocumentTermMatrix(revCorp, control = list(bounds = list(global = c(10,Inf))))
 dtm
 
+# Find associations in a document-term matrix
+# those terms from dtm which correlate with "term" more than corlimit.
+findAssocs(dtm, "one", 0.2)
+findAssocs(dtm, "batteri", 0.2)
+findAssocs(dtm, "step", 0.2)
+findAssocs(dtm, "work", 0.2)
+
+# remove "one"
+revCorp <- tm_map(revCorp, removeWords, "one")
+dtm <- DocumentTermMatrix(revCorp, control = list(bounds = list(global = c(10,Inf))))
+
+
 # cluster analysis: do they fall naturally into groups?
 # k-means clustering - have to specify number of groups
-azRev.sd <- scale(dtm)
+azRev.sd <- scale(dtm) # standardize matrix
 set.seed(9)
-km.out <- kmeans(azRev.sd, 6, nstart=50)
+km.out <- kmeans(azRev.sd, 7, nstart=50) # try 7 groups
 km.clusters <- km.out$cluster
 table(km.clusters)
 
 # add class membership to data frame
 badReviews[,"km.clusters"] <- km.clusters
+head(badReviews)
 
 # how are they similar within clusters?
 # write a function to examine each group and look at words 
@@ -583,27 +599,25 @@ badReviews[,"km.clusters"] <- km.clusters
 groupInfo <- function(x){
   group <- Corpus(VectorSource(badReviews[badReviews$km.clusters==x,"review"]))
   group <- tm_map(group, tolower)
-  group <- tm_map(group, removeWords, c(stopwords("english"),"fitbit", "zip"))
+  group <- tm_map(group, removeWords, c(stopwords("english"),"fitbit", "zip", "one"))
   group <- tm_map(group, removePunctuation) 
   group <- tm_map(group, removeNumbers) 
+  group <- tm_map(group, stemDocument) 
   tdm <- TermDocumentMatrix(group)
   m <- as.matrix(tdm)
   v <- sort(rowSums(m),decreasing=TRUE)
   v[1:20] # top 20 most frequent terms
 }
 
-groupInfo(1)
-groupInfo(2)
-groupInfo(3)
-groupInfo(4)
-groupInfo(5)
-groupInfo(6)
+table(km.clusters)
+lapply(1:7,groupInfo)
+
+
 #############################################################################
 #
 # Bonus material: How to use the Twitter API with R
 
 # install.packages("twitteR")
-setwd("~/workshops/Text Mining/")
 library(twitteR)
 
 # necessary step for Windows to handle the SSL Part
@@ -624,8 +638,8 @@ authURL <- "https://api.twitter.com/oauth/authorize"
 # Make sure to click on the save button after doing this. 
 # In the "Details" tab, take note of your consumer key and consumer secret.
 
-consumerKey <- "4jLSBcyXSb4BjyYo14KPiw"
-consumerSecret <- "XYIhxLo7NYHdFpXtzTT5cN30EdvvK086YrU6gsbgs"
+consumerKey <- "<your consumer key>"
+consumerSecret <- "<your consumer secret>"
 twitCred <- OAuthFactory$new(consumerKey=consumerKey,consumerSecret=consumerSecret,
                              requestURL=reqURL,accessURL=accessURL,authURL=authURL)
 
@@ -647,7 +661,6 @@ tweets <- searchTwitter('@delta', cainfo="cacert.pem", n=100)
 save(twitCred, file="twitCred.Rdata")
 
 # code to use saved file in your next R session:
-setwd("workshops/Text Mining/")
 load("twitCred.Rdata")
 library(twitteR)
 registerTwitterOAuth(twitCred)
